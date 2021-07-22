@@ -2,23 +2,43 @@
   <div class="login">
     <div class="login__form">
       <video id="localVideo" autoplay muted></video>
+      <video id="remoteVideos" autoplay muted></video>
       <div class="input-group">
-        <input type="text" class="login__input" placeholder="Room ID" />
+        <div>{{username}}</div>
+        <input type="text" class="login__input" placeholder="Room ID"  v-model="roomId"/>
       </div>
       <div>
-        <input type="text" class="login__input" placeholder="Username" />
+        <input type="text" class="login__input" placeholder="Username" v-model="username"/>
       </div>
       <button class="login__button" @click="login">Join</button>
+      <button class="login__button" @click="disableVideo">Disable Video</button>
     </div>
   </div>
 </template>
+
+<style scoped lang="stylus">
+#localVideo, #remoteVideos
+  width: 100px
+  height: 100px
+  backgroundL: red
+
+</style>
 
 <script>
 // @ is an alias to /src
 // import io from "socket.io-client";
 // import SimpleSignalClient from "simple-signal-client";
-// import {Jason} from "medea-jason";
-import axios from "axios";
+import init, {
+  Jason,
+  JasonError,
+  MediaStreamSettings,
+  AudioTrackConstraints,
+  DeviceVideoTrackConstraints,
+  DisplayVideoTrackConstraints,
+  FacingMode,
+  MediaKind,
+  MediaSourceKind
+} from "medea-jason";
 
 let localVideo;
 let localStream;
@@ -26,6 +46,9 @@ let remoteVideo;
 let peerConnection;
 let uuid;
 let serverConnection;
+
+const remote_videos = [];
+let remoteMemberId = 0;
 
 let peerConnectionConfig = {
   iceServers: [
@@ -79,6 +102,13 @@ async function createRoom(roomId) {
 
 export default {
   name: "Login",
+  data: function () {
+    return {
+      username: 'Bob',
+      roomId: 'call',
+      token: 'helloworld',
+    }
+  },
   props: {
     socketURL: {
       type: String,
@@ -86,8 +116,123 @@ export default {
     },
   },
   methods: {
+    async disableVideo(){
+      this.room.disable_video();
+    },
     async login() {
+      console.log('log');
+      await init();
+      const jason = new Jason();
+      this.room = jason.init_room();
 
+      const username = 'Bob';
+      const roomId = 1441748;
+      // this.room.join(this.socketURL + 'test-room' + '/' + username + '?token=test')
+      this.room.join('wss://frontend-sandbox-peyoter.herokuapp.com/ws/' + this.roomId + '/' + this.username + '?token=' + this.token)
+
+      this.room.on_failed_local_media((error) => {
+        console.log('on_failed_local_media');
+        // console.error(error.message());
+      });
+
+      this.room.on_new_connection((connection) => {
+        console.log('on_new_connection');
+        remoteMemberId = connection.get_remote_member_id();
+        console.log('remoteMemberId', remoteMemberId);
+        const isCallStarted = true;
+        let memberVideoDiv = remote_videos[remoteMemberId];
+        // if (memberVideoDiv === undefined) {
+        //   memberVideoDiv = document.createElement('div');
+        //   memberVideoDiv.classList.add('video');
+        //   memberVideoDiv.classList.add('d-flex');
+        //   memberVideoDiv.classList.add('flex-column');
+        //   memberVideoDiv.classList.add('align-items-center');
+        //   memberVideoDiv.style = 'margin: 10px';
+        //   remoteVideos.appendChild(memberVideoDiv);
+        //   remote_videos[remoteMemberId] = memberVideoDiv;
+
+        connection.on_remote_track_added((track) => {
+          console.log('on_remote_track_added');
+          const playElement = document.getElementById('remoteVideos');
+          let mediaStream = new MediaStream();
+          mediaStream.addTrack(track.get_track());
+          playElement.srcObject = mediaStream;
+
+          // let playElement = undefined;
+          // if (track.kind() === MediaKind.Video) {
+          //   if (track.media_source_kind() === MediaSourceKind.Display) {
+          //     playElement = memberVideoDiv.getElementsByClassName('display-video')[0];
+          //     if (playElement === undefined) {
+          //       playElement = document.createElement('video');
+          //       memberVideoDiv.appendChild(displayVideoEl);
+          //     }
+          //     let mediaStream = new MediaStream();
+          //     mediaStream.addTrack(track.get_track());
+          //     playElement.srcObject = mediaStream;
+          //   }
+          // } else {
+          //   playElement = memberVideoDiv.getElementsByClassName('audio')[0];
+          //   if (playElement === undefined) {
+          //     playElement = document.createElement('audio');
+          //     playElement.className = 'audio';
+          //     playElement.classList.add('audio');
+          //     playElement.classList.add('order-3');
+          //     playElement.controls = 'true';
+          //     playElement.autoplay = 'true';
+          //     memberVideoDiv.appendChild(playElement);
+          //   }
+          //   let mediaStream = new MediaStream();
+          //   mediaStream.addTrack(track.get_track());
+          //   playElement.srcObject = mediaStream;
+          // }
+          //
+          // track.on_enabled( () => {
+          //   console.log(`Track enabled: ${track.kind()}`);
+          // });
+          // track.on_disabled( () => {
+          //   console.log(`Track disabled: ${track.kind()}`);
+          // });
+          // track.on_muted( () => {
+          //   console.log(`Track muted: ${track.kind()}`);
+          // });
+          // track.on_unmuted( () => {
+          //   console.log(`Track unmuted: ${track.kind()}`);
+          // });
+          track.on_stopped( () => {
+            console.log('on_stopped');
+            track.free();
+            // playElement.remove();
+          });
+        });
+
+        connection.on_close(()=>{
+          remote_videos[remoteMemberId].remove();
+          delete remote_videos[remoteMemberId];
+        })
+      });
+
+
+      this.room.on_connection_loss(async (reconnectHandle) => {
+        console.log('on_failed_local_media');
+      });
+
+      this.room.on_close(function (on_closed) {
+        // remote_videos[remoteMemberId].remove();
+        // delete remote_videos[remoteMemberId];
+
+        console.log(
+          `Call was ended.
+          Reason: ${on_closed.reason()};
+          Is closed by server: ${on_closed.is_closed_by_server()};
+          Is error: ${on_closed.is_err()}.`
+        );
+      });
+
+
+      // const localTracks = await jason.media_manager().init_local_tracks();
+      // console.log('room', localTracks);
+
+      // const log = new Jason();
       // await axios({
       //   method: "post",
       //   url: "http://frontend-sandbox-peyoter.herokuapp.com/control-api/",
